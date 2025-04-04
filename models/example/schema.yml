@@ -19,3 +19,42 @@ models:
             tests:
                 - unique
                 - not_null
+
+    - name: dim_sale_order_type
+      description: "Table containing information about sale order types."
+      columns:
+          - name: ID
+            description: "Auto-incrementing identifier for the sale order type."
+            tests:
+              - dbt_constraints.primary_key
+              - not_null
+          - name: typeDescription
+            description: "Description of the sale order type."
+            tests:
+              - not_null
+          - name: typeName
+            description: "Name of the sale order type."
+            tests:
+              - not_null
+          - name: subTypeDescription
+            description: "Description of the sale order sub-type."
+            tests:
+              - not_null
+          - name: AS400Name
+            description: "Name used in the AS400 system."
+            tests:
+              - not_null
+          - name: subTypeName
+            description: "Name of the sale order sub-type."
+            tests:
+              - not_null
+          - name: subSuperTypeName
+            description: "Name of the super-type related to the sale order."
+            tests:
+              - not_null
+          - name: legacyTypeID
+            description: "Legacy ID for the sale order type."
+            tests:
+              - not_null
+          - name: Createtime
+            description: "Timestamp for the creation of the record, including time zone."
