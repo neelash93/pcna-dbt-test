@@ -26,7 +26,6 @@ models:
           - name: ID
             description: "Auto-incrementing identifier for the sale order type."
             tests:
-              - dbt_constraints.primary_key
               - not_null
           - name: typeDescription
             description: "Description of the sale order type."

@@ -1,72 +1,62 @@
-{% macro process_constraints(schema_name) %}
-    {# Fetch constraints for the given schema #}
-    {% set constraints = fetch_constraints(schema_name) %}
-    
-    {# SQL to create the results table if it doesn't already exist #}
-    {{
-        dbt_utils.create_table_as(
-            "constraint_test_results",
-            sql="
-                CREATE TABLE IF NOT EXISTS {{ schema_name }}.constraint_test_results (
-                    id SERIAL PRIMARY KEY,
-                    table_name TEXT,
-                    column_name TEXT,
-                    constraint_type TEXT,
-                    failed_record JSONB
-                )
-            "
-        )
-    }}
-
-    {# Loop through the constraints and handle each one #}
-    {% for constraint in constraints %}
-        {% if constraint.constraint_type == 'PRIMARY KEY' %}
-            {% set failed_records = {{primary_key(constraint.table_name, constraint.column_name)}} %}
-        -- {% elif constraint.constraint_type == 'FOREIGN KEY' %}
-        --     {% set failed_records = generate_fk_integrity_test(constraint.table_name, constraint.column_name) %}
-        -- {% elif constraint.constraint_type == 'CHECK' %}
-        --     {% set failed_records = generate_check_constraint_test(constraint.table_name, constraint.column_name, constraint.constraint_name) %}
-        {% endif %}
-
-        {# Insert failed records into the table #}
-        {% for record in failed_records %}
-            {{
-                dbt_utils.insert_as(
-                    "constraint_test_results",
-                    columns=["table_name", "column_name", "constraint_type", "failed_record"],
-                    values=[
-                        constraint.table_name,
-                        constraint.column_name,
-                        constraint.constraint_type,
-                        record
-                    ]
-                )
-            }}
-        {% endfor %}
-    {% endfor %}
-{% endmacro %}
-
-
-{% macro fetch_constraints(schema_name=None) %}
+{% macro fetch_pk_uk_constraints(schema_name=None) %}
     {% set schema_condition = '' %}
     {% if schema_name %}
         {% set schema_condition = "AND table_schema = '" ~ schema_name ~ "'" %}
     {% endif %}
+    
+    {%- set query_tb -%}
+        CREATE OR REPLACE TABLE PRIM6 (
+            CONSTRAINT_TYPE VARCHAR(20),
+            CREATED_ON TIMESTAMP_NTZ,
+            DATABASE_NAME VARCHAR(30),
+            SCHEMA_NAME VARCHAR(30),
+            TABLE_NAME VARCHAR(50),
+            COLUMN_NAME VARCHAR(50),
+            KEY_SEQUENCE INT,
+            CONSTRAINT_NAME VARCHAR(100),
+            RELY VARCHAR(10),
+            COMMENTS VARCHAR(512)
+        )
+    {%- endset -%}
 
-    -- Query the INFORMATION_SCHEMA for all constraints
-    with constraints as (
-        select 
-            constraint_name,
-            table_name,
-            constraint_type,
-            column_name
-        from 
-            information_schema.table_constraints tc
-            join information_schema.key_column_usage kcu
-                on tc.constraint_name = kcu.constraint_name
-        where 
-            tc.constraint_type in ('PRIMARY KEY', 'FOREIGN KEY', 'CHECK')
-            {{ schema_condition }}
-    )
-    select * from constraints
+    {%- set query_pk -%}
+        show primary keys
+    {%- endset -%}
+    {%- set query_uk -%}
+        show unique keys
+    {%- endset -%}
+    {%- set query_ins_pk -%}
+        INSERT INTO PRIM6 SELECT 'PRIMARY', * FROM TABLE(RESULT_SCAN(-1))
+    {%- endset -%}
+    {%- set query_ins_uk -%}
+        INSERT INTO PRIM6 SELECT 'UNIQUE', * FROM TABLE(RESULT_SCAN(-1))
+    {%- endset -%}
+    
+    {%- set query_final -%}
+        SELECT SCHEMA_NAME, TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE, LISTAGG(COLUMN_NAME, ',') AS COLUMN_NAMES 
+FROM  PRIM6 GROUP BY SCHEMA_NAME, TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE ;
+    {%- endset -%}
+
+
+    {% do run_query(query_tb) %}
+    {% do run_query(query_pk) %}    
+    {% do run_query(query_ins_pk) %}
+    {% do run_query(query_uk) %}    
+    {% do run_query(query_ins_uk) %}
+    {% set result_final = run_query(query_final) %}
+
+    {% for constraint in result_final %}
+        {{ print(constraint.SCHEMA_NAME + "   " + constraint.TABLE_NAME + "  " + constraint.COLUMN_NAMES + "  " + constraint.CONSTRAINT_TYPE) }}
+        {% set col_arr = constraint.COLUMN_NAMES.split(',') %}
+        {{ print(col_arr) }}
+        {% if constraint.CONSTRAINT_TYPE == 'PRIMARY' %}
+            {% set pk_query = adapter.dispatch('test_primary_key', 'dbt_constraints')( constraint.TABLE_NAME, col_arr, quote_columns=true) %}
+            {{ print(pk_query) }}
+            {% set failed_records = run_query(pk_query) %}
+            {{ print(failed_records|length) }}
+            {% for row in failed_records %}
+                {{ print(row) }}
+            {% endfor %}
+        {% endif %}
+    {% endfor %}   
 {% endmacro %}
