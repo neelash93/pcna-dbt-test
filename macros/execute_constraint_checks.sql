@@ -50,13 +50,28 @@ FROM  PRIM6 GROUP BY SCHEMA_NAME, TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE ;
         {% set col_arr = constraint.COLUMN_NAMES.split(',') %}
         {{ print(col_arr) }}
         {% if constraint.CONSTRAINT_TYPE == 'PRIMARY' %}
-            {% set pk_query = adapter.dispatch('test_primary_key', 'dbt_constraints')( constraint.TABLE_NAME, col_arr, quote_columns=true) %}
-            {{ print(pk_query) }}
-            {% set failed_records = run_query(pk_query) %}
-            {{ print(failed_records|length) }}
-            {% for row in failed_records %}
-                {{ print(row) }}
-            {% endfor %}
+            {% set query = adapter.dispatch('test_primary_key', 'dbt_constraints')( constraint.TABLE_NAME, col_arr, quote_columns=true) %}
+            {{ print(query) }}
+        {% elif constraint.CONSTRAINT_TYPE == 'UNIQUE' %}
+            {% set query = adapter.dispatch('test_unique_key', 'dbt_constraints')( constraint.TABLE_NAME, col_arr, quote_columns=true) %}
+            {{ print(query) }}
         {% endif %}
+       
+        {% set failed_records = run_query(query) %}
+        {% set status = "" %}
+        {% if failed_records | length > 0 %}
+            {% set status = "FAIL" %}
+        {% else %}
+            {% set status = "PASS" %}
+        {% endif %}
+        {% set insrt_query = "INSERT INTO CONSTRAINT_TEST_RESULTS (table_name, column_name, constraint_type, status, run_id) values ('" + constraint.TABLE_NAME + "', '" + constraint.COLUMN_NAMES + "', '" + constraint.CONSTRAINT_TYPE + "', '" + status + "', '" + invocation_id + "')" %}
+        {% do run_query(insrt_query) %}
+        {% for row in failed_records %}
+            {% set fail = row.values() | join(', ') %}
+            {{ print("This is fail : " + fail) }}
+            {% set insrt_query_fail = "INSERT INTO CONSTRAINT_TEST_RESULTS_FAILED_RECORDS (table_name, column_name, constraint_type, failed_record, run_id) values ('" + constraint.TABLE_NAME + "', '" + constraint.COLUMN_NAMES + "', '" + constraint.CONSTRAINT_TYPE + "', '" + fail + "', '" + invocation_id + "')" %}
+            {% do run_query(insrt_query_fail) %}
+        {% endfor %}
+        
     {% endfor %}   
 {% endmacro %}
