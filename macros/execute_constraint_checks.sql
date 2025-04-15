@@ -1,4 +1,4 @@
-{% macro execute_constraint_checks(database_name=None, schema_name=None, table_name=None) %}
+{% macro execute_constraint_checks(database_name=None, schema_name=None, table_name=None, purge=None) %}
     {% set database_condition = '' %}
     {% set schema_condition = '' %}
     {% set table_condition = '' %}
@@ -169,5 +169,13 @@ FROM temp_fk WHERE 1=1 {{ database_condition }} {{ schema_condition }} {{ table_
             {% do run_query(insrt_query_fail) %}
         {% endfor %}
         
-    {% endfor %}   
+    {% endfor %}
+
+    {{ print(purge) }}
+   
+    {% if purge is not none and purge | int > 0 %}
+        {% do run_query("DELETE FROM CONSTRAINT_TEST_SUMMARY WHERE INSRT_DT < DATEADD(days, -" + purge | string + ", CURRENT_DATE)") %}
+        {% do run_query("DELETE FROM CONSTRAINT_TEST_DETAIL WHERE INSRT_DT < DATEADD(days, -" + purge | string + ", CURRENT_DATE)") %}
+    {% endif %}
+
 {% endmacro %}
