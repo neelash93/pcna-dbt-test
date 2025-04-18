@@ -128,10 +128,8 @@ FROM temp_fk WHERE 1=1 {{ database_condition }} {{ schema_condition }} {{ table_
 
     --For each constraint identified - Call DBT Constraint Tests to generate test query
     {% for constraint in result_final %}
-        {{ print(constraint.SCHEMA_NAME + "   " + constraint.TABLE_NAME + "  " + constraint.COLUMN_NAMES + "  " + constraint.CONSTRAINT_TYPE) }}
         
         {% set query = get_test_query(constraint.CONSTRAINT_TYPE, constraint.TABLE_NAME, constraint.COLUMN_NAMES, constraint.PK_TABLE_NAME, constraint.PK_COLUMN_NAMES) %}
-        
         --Run test query, and INSERT into Summary and Detail tables
         {% set failed_records = run_query(query) %}
         {% set status = "" %}
@@ -153,7 +151,7 @@ FROM temp_fk WHERE 1=1 {{ database_condition }} {{ schema_condition }} {{ table_
 
         --Insert each failure record into DETAIL table
         {% for row in failed_records %}
-            {% set fail = row.values() | join(', ') %} --Change to meaningful string
+            {% set fail = row.values()[0] %}
             {% if constraint.CONSTRAINT_TYPE == 'FOREIGN' %}
                 {% set insrt_query_fail = "INSERT INTO CONSTRAINT_TEST_DETAIL (database_name, schema_name, table_name, column_name, referred_table_name, referred_column_name, constraint_type, failed_record, run_id) values ('" + constraint.DATABASE_NAME + "', '"  + constraint.SCHEMA_NAME + "', '" + constraint.TABLE_NAME + "', '" + constraint.COLUMN_NAMES + "', '" + constraint.PK_TABLE_NAME + "', '" + constraint.PK_COLUMN_NAMES + "', '" + constraint.CONSTRAINT_TYPE + "', '" + fail + "', '" + invocation_id + "')" %}
             {% else %}
