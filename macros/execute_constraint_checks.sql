@@ -129,16 +129,9 @@ FROM temp_fk WHERE 1=1 {{ database_condition }} {{ schema_condition }} {{ table_
     --For each constraint identified - Call DBT Constraint Tests to generate test query
     {% for constraint in result_final %}
         {{ print(constraint.SCHEMA_NAME + "   " + constraint.TABLE_NAME + "  " + constraint.COLUMN_NAMES + "  " + constraint.CONSTRAINT_TYPE) }}
-        {% set col_arr = constraint.COLUMN_NAMES.split(',') %}
-        {% if constraint.CONSTRAINT_TYPE == 'PRIMARY' %}
-            {% set query = adapter.dispatch('test_primary_key', 'dbt_constraints')( constraint.TABLE_NAME, col_arr, quote_columns=true) %}
-        {% elif constraint.CONSTRAINT_TYPE == 'UNIQUE' %}
-            {% set query = adapter.dispatch('test_unique_key', 'dbt_constraints')( constraint.TABLE_NAME, col_arr, quote_columns=true) %}
-        {% elif constraint.CONSTRAINT_TYPE == 'FOREIGN' %}
-            {% set pk_col_arr = constraint.PK_COLUMN_NAMES.split(',') %}
-            {% set query = adapter.dispatch('test_foreign_key', 'dbt_constraints')( constraint.TABLE_NAME, col_arr, constraint.PK_TABLE_NAME, pk_col_arr, quote_columns=true) %}
-        {% endif %}
-
+        
+        {% set query = get_test_query(constraint.CONSTRAINT_TYPE, constraint.TABLE_NAME, constraint.COLUMN_NAMES, constraint.PK_TABLE_NAME, constraint.PK_COLUMN_NAMES) %}
+        
         --Run test query, and INSERT into Summary and Detail tables
         {% set failed_records = run_query(query) %}
         {% set status = "" %}
@@ -171,8 +164,6 @@ FROM temp_fk WHERE 1=1 {{ database_condition }} {{ schema_condition }} {{ table_
         
     {% endfor %}
 
-    {{ print(purge) }}
-   
     {% if purge is not none and purge | int > 0 %}
         {% do run_query("DELETE FROM CONSTRAINT_TEST_SUMMARY WHERE INSRT_DT < DATEADD(days, -" + purge | string + ", CURRENT_DATE)") %}
         {% do run_query("DELETE FROM CONSTRAINT_TEST_DETAIL WHERE INSRT_DT < DATEADD(days, -" + purge | string + ", CURRENT_DATE)") %}
