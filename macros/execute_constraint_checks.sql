@@ -1,18 +1,38 @@
-{% macro execute_constraint_checks(database_name=None, schema_name=None, table_name=None, purge=None) %}
+{% macro execute_constraint_checks(database_name=None, schema_name=None, table_name=None, purge=None, tgt_db=None, tgt_schema=None) %}
+    {% set tgt_db = tgt_db or database_name %}
+    {% set tgt_schema = tgt_schema or schema_name %}
+    
+    {% if (database_name is none and tgt_db is none) or (schema_name is none and tgt_schema is none) %}
+        {% do exceptions.raise_compiler_error("tgt_db and tgt_schema must be provided when running all constraints") %}
+    {% endif %}
+
     {% set database_condition = '' %}
     {% set schema_condition = '' %}
     {% set table_condition = '' %}
-    
+    {% set db_qual = '' %}
+    {% set db_keyword = ''%}
+
     -- Define conditions if provided as argument
     {% if database_name %}
         {% set database_condition = "AND DATABASE_NAME = '" ~ database_name ~ "'" %}
+        {% set db_qual = "" ~ database_name ~ "" %}
+        {% set db_keyword = "IN DATABASE" %}
     {% endif %}
     {% if schema_name %}
         {% set schema_condition = "AND SCHEMA_NAME = '" ~ schema_name ~ "'" %}
+        {% set db_qual = db_qual ~ "." ~ schema_name %}
+        {% set db_keyword = "IN SCHEMA" %}
     {% endif %}
     {% if table_name %}
-        {% set table_condition = "AND TABLE_NAME = '" ~ table_name ~ "'" %}
+        {% if table_name is string %}
+            {% set table_condition = "AND TABLE_NAME IN ('" ~ table_name ~ "')" %}
+        {% elif table_name is iterable %}
+            {% set table_list = table_name | join("','") %}
+            {% set table_condition = "AND TABLE_NAME IN ('" ~ table_list ~ "')" %}
+        {% endif %}
     {% endif %}
+
+    print(db_qual + " " + db_keyword)
     
     --Queries for storing list of constraints in temp table
     {%- set query_tmp_pkuk -%}
@@ -31,7 +51,7 @@
     {%- endset -%}
 
     {%- set query_tmp_fk -%}
-        CREATE OR REPLACE TABLE temp_fk (
+        CREATE OR REPLACE TEMP TABLE temp_fk (
             CONSTRAINT_TYPE VARCHAR(20),
             CREATED_ON TIMESTAMP_NTZ,
             PK_DATABASE_NAME VARCHAR(30),
@@ -54,13 +74,13 @@
     {%- endset -%}
 
     {%- set query_pk -%}
-        show primary keys
+        show primary keys {{db_keyword}} {{db_qual}}
     {%- endset -%}
     {%- set query_uk -%}
-        show unique keys
+        show unique keys {{db_keyword}} {{db_qual}}
     {%- endset -%}
     {%- set query_fk -%}
-        show imported keys
+        show imported keys {{db_keyword}} {{db_qual}}
     {%- endset -%}
     {%- set query_ins_pk -%}
         INSERT INTO temp_pk_uk SELECT 'PRIMARY', * FROM TABLE(RESULT_SCAN(-1))
@@ -74,7 +94,7 @@
 
     -- Queries to create table storing test results
     {%- set query_tb_summary -%}
-        CREATE TABLE IF NOT EXISTS CONSTRAINT_TEST_SUMMARY (
+        CREATE TABLE IF NOT EXISTS {{tgt_db}}.{{tgt_schema}}.CONSTRAINT_TEST_SUMMARY (
             id INT AUTOINCREMENT,
             database_name VARCHAR(30),
             schema_name VARCHAR(30),
@@ -89,7 +109,7 @@
         );
     {%- endset -%}
     {%- set query_tb_detail -%}
-        CREATE TABLE IF NOT EXISTS CONSTRAINT_TEST_DETAIL (
+        CREATE TABLE IF NOT EXISTS {{tgt_db}}.{{tgt_schema}}.CONSTRAINT_TEST_DETAIL (
             id INT AUTOINCREMENT,
             database_name VARCHAR(30),
             schema_name VARCHAR(30),
@@ -107,10 +127,10 @@
     --Final query to get final list of all constraints that need to be evaluated
     {%- set query_final -%}
         SELECT DATABASE_NAME, SCHEMA_NAME, TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE, NULL AS PK_TABLE_NAME, LISTAGG(COLUMN_NAME, ',') AS COLUMN_NAMES, NULL AS PK_COLUMN_NAMES
-FROM  temp_pk_uk WHERE 1=1 {{ database_condition }} {{ schema_condition }} {{ table_condition }} GROUP BY DATABASE_NAME, SCHEMA_NAME, TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE
+FROM  temp_pk_uk WHERE 1=1 {{ table_condition }} GROUP BY DATABASE_NAME, SCHEMA_NAME, TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE
 UNION
 SELECT DATABASE_NAME, SCHEMA_NAME, TABLE_NAME, FK_NAME, CONSTRAINT_TYPE, PK_TABLE_NAME, LISTAGG(FK_COLUMN_NAME, ',') AS COLUMN_NAMES, LISTAGG(PK_COLUMN_NAME, ',') AS PK_COLUMN_NAMES
-FROM temp_fk WHERE 1=1 {{ database_condition }} {{ schema_condition }} {{ table_condition }} GROUP BY DATABASE_NAME, SCHEMA_NAME, TABLE_NAME, FK_NAME, CONSTRAINT_TYPE, PK_TABLE_NAME;
+FROM temp_fk WHERE 1=1 {{ table_condition }} GROUP BY DATABASE_NAME, SCHEMA_NAME, TABLE_NAME, FK_NAME, CONSTRAINT_TYPE, PK_TABLE_NAME;
     {%- endset -%}
 
     -- Run all queries defined above sequentially
